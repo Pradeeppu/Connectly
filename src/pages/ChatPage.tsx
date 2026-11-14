@@ -7,6 +7,7 @@ import { useFriendStore } from '../stores/friendStore';
 import { useThemeStore } from '../stores/themeStore';
 import { ReportModal } from '../features/moderation/ReportModal';
 import { BlockModal } from '../features/moderation/BlockModal';
+import { EmojiPicker } from '../components/chat/EmojiPicker';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import {
   Send,
@@ -16,6 +17,7 @@ import {
   Loader2,
   AlertCircle,
   Paperclip,
+  Smile,
   Image as ImageIcon,
   X,
   UserPlus,
@@ -49,6 +51,7 @@ export const ChatPage: React.FC = () => {
 
   const [input, setInput] = useState('');
   const [selectedMedia, setSelectedMedia] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const [stopConfirm, setStopConfirm] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [blockOpen, setBlockOpen] = useState(false);
@@ -77,6 +80,7 @@ export const ChatPage: React.FC = () => {
     setFriendRequestSent(false);
     setIsFriendConnected(false);
     setSelectedMedia(null);
+    setEmojiOpen(false);
     if (status === 'matched') {
       inputRef.current?.focus();
     }
@@ -194,6 +198,7 @@ export const ChatPage: React.FC = () => {
 
     setInput('');
     setSelectedMedia(null);
+    setEmojiOpen(false);
     sendTyping(false);
 
     const res = await sendMessage(text, profile, media?.url, media?.type);
@@ -201,6 +206,11 @@ export const ChatPage: React.FC = () => {
       setRateLimitWarning(res.error);
       setTimeout(() => setRateLimitWarning(null), 3000);
     }
+  };
+
+  const handleSelectEmoji = (emoji: string) => {
+    setInput((prev) => prev + emoji);
+    inputRef.current?.focus();
   };
 
   const handleSendFriendRequest = async () => {
@@ -497,15 +507,23 @@ export const ChatPage: React.FC = () => {
       )}
 
       {/* Classic Ergonomic Control Bar */}
-      <div className={`p-2.5 sm:p-4 border-t shrink-0 transition-colors ${
+      <div className={`relative p-2.5 sm:p-4 border-t shrink-0 transition-colors ${
         isDark ? 'border-zinc-800 bg-zinc-900/80' : 'border-zinc-200 bg-white'
       }`}>
-        <form onSubmit={handleSend} className="flex items-center gap-2 sm:gap-3">
+        {/* Emoji Picker Popover */}
+        <EmojiPicker
+          isOpen={emojiOpen}
+          onClose={() => setEmojiOpen(false)}
+          onSelect={handleSelectEmoji}
+          isDark={isDark}
+        />
+
+        <form onSubmit={handleSend} className="flex items-center gap-1.5 sm:gap-2.5">
           {/* Big Disconnect / Stop Button */}
           <button
             type="button"
             onClick={handleStopClick}
-            className={`px-3.5 sm:px-6 py-3.5 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer shrink-0 select-none active:scale-95 ${
+            className={`px-3 sm:px-5 py-3.5 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer shrink-0 select-none active:scale-95 ${
               status === 'ended'
                 ? 'bg-sky-500 hover:bg-sky-400 text-black shadow-lg shadow-sky-500/20 animate-pulse'
                 : stopConfirm
@@ -544,6 +562,25 @@ export const ChatPage: React.FC = () => {
               className="hidden"
             />
           </label>
+
+          {/* Emoji Tray Toggle Button */}
+          <button
+            type="button"
+            disabled={status !== 'matched'}
+            onClick={() => setEmojiOpen((prev) => !prev)}
+            className={`p-3.5 rounded-xl border transition cursor-pointer shrink-0 active:scale-95 ${
+              status !== 'matched'
+                ? 'opacity-40 cursor-not-allowed bg-zinc-100 dark:bg-zinc-950 text-zinc-400'
+                : emojiOpen
+                ? 'bg-sky-500 text-black border-sky-400 shadow-md shadow-sky-500/20'
+                : isDark
+                ? 'bg-zinc-950 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 border-zinc-800'
+                : 'bg-zinc-50 hover:bg-zinc-100 text-zinc-600 hover:text-amber-500 border-zinc-300'
+            }`}
+            title="Insert Emoji"
+          >
+            <Smile className="w-5 h-5" />
+          </button>
 
           {/* Text Message Input (16px base font prevents iOS mobile zoom) */}
           <input
