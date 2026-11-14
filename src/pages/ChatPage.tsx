@@ -6,6 +6,7 @@ import { useCallStore } from '../stores/callStore';
 import { useFriendStore } from '../stores/friendStore';
 import { ReportModal } from '../features/moderation/ReportModal';
 import { BlockModal } from '../features/moderation/BlockModal';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import {
   Send,
   Flag,
@@ -96,8 +97,18 @@ export const ChatPage: React.FC = () => {
       }
     };
 
+    const handleUnload = () => {
+      leaveMatch();
+    };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('beforeunload', handleUnload);
+    window.addEventListener('pagehide', handleUnload);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('beforeunload', handleUnload);
+      window.removeEventListener('pagehide', handleUnload);
+    };
   }, [status, stopConfirm, profile, leaveMatch, nextMatch]);
 
   const handleStopClick = () => {
@@ -125,7 +136,7 @@ export const ChatPage: React.FC = () => {
     }, 1500);
   };
 
-  const handleMediaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -141,6 +152,27 @@ export const ChatPage: React.FC = () => {
       return;
     }
 
+    // Upload directly to Supabase Storage bucket 'chat-media'
+    const fileExt = file.name.split('.').pop() || (isVideo ? 'mp4' : 'jpg');
+    const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
+
+    if (isSupabaseConfigured) {
+      try {
+        const { error: uploadErr } = await supabase.storage.from('chat-media').upload(fileName, file);
+        if (!uploadErr) {
+          const { data: pubData } = supabase.storage.from('chat-media').getPublicUrl(fileName);
+          setSelectedMedia({
+            url: pubData.publicUrl,
+            type: isVideo ? 'video' : 'image',
+          });
+          return;
+        }
+      } catch {
+        // fallback
+      }
+    }
+
+    // Local fallback preview
     const reader = new FileReader();
     reader.onload = () => {
       setSelectedMedia({

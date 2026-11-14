@@ -279,6 +279,34 @@ export const useMatchStore = create<MatchState>((set, get) => ({
       .on('broadcast', { event: 'typing' }, (payload) => {
         set({ partnerTyping: Boolean(payload.payload?.isTyping) });
       })
+      .on('broadcast', { event: 'chat:message' }, ({ payload }) => {
+        if (payload?.sender_id !== currentUserId) {
+          sounds.playMessage();
+          set((state) => ({
+            partnerTyping: false,
+            messages: [...state.messages, payload],
+          }));
+        }
+      })
+      .on('broadcast', { event: 'chat:disconnect' }, () => {
+        if (get().status === 'matched') {
+          sounds.playDisconnected();
+          set((state) => ({
+            status: 'ended',
+            partnerTyping: false,
+            messages: [
+              ...state.messages,
+              {
+                id: 'sys-disc-' + Date.now(),
+                sender_id: 'system',
+                content: 'Stranger has disconnected.',
+                is_system: true,
+                created_at: new Date().toISOString(),
+              },
+            ],
+          }));
+        }
+      })
       .on('broadcast', { event: 'friend_request' }, () => {
         set({ incomingFriendRequest: true });
       })
@@ -367,6 +395,15 @@ export const useMatchStore = create<MatchState>((set, get) => ({
   leaveMatch: async () => {
     const { conversationId, channel, status } = get();
     if (channel) {
+      try {
+        await channel.send({
+          type: 'broadcast',
+          event: 'chat:disconnect',
+          payload: {},
+        });
+      } catch {
+        // ignore
+      }
       supabase.removeChannel(channel);
     }
 
@@ -426,20 +463,17 @@ export const useMatchStore = create<MatchState>((set, get) => ({
     sounds.playMessage();
     set((state) => ({ messages: [...state.messages, newMsg] }));
 
-    if (isSupabaseConfigured) {
-      try {
-        const { error } = await supabase.from('direct_messages').insert({
-          conversation_id: conversationId,
-          sender_id: senderProfile.id,
-          content: cleanContent,
-          media_url: mediaUrl || null,
-          media_type: mediaType || null,
-        });
-        if (error) return { error: error.message };
-      } catch (err: any) {
-        return { error: err.message };
-      }
-    } else {
+    // Instant zero-disk broadcast over Realtime
+    const { channel } = get();
+    if (channel) {
+      channel.send({
+        type: 'broadcast',
+        event: 'chat:message',
+        payload: newMsg,
+      });
+    }
+
+    if (!isSupabaseConfigured) {
       // Demo preview echo simulation
       setTimeout(() => {
         if (get().status === 'matched') {
