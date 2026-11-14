@@ -4,6 +4,7 @@ import { useMatchStore } from '../stores/matchStore';
 import { useAuthStore } from '../stores/authStore';
 import { useCallStore } from '../stores/callStore';
 import { useFriendStore } from '../stores/friendStore';
+import { useThemeStore } from '../stores/themeStore';
 import { ReportModal } from '../features/moderation/ReportModal';
 import { BlockModal } from '../features/moderation/BlockModal';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
@@ -43,6 +44,8 @@ export const ChatPage: React.FC = () => {
 
   const { startCall } = useCallStore();
   const { sendFriendRequest } = useFriendStore();
+  const { theme } = useThemeStore();
+  const isDark = theme === 'dark';
 
   const [input, setInput] = useState('');
   const [selectedMedia, setSelectedMedia] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
@@ -217,19 +220,25 @@ export const ChatPage: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-[calc(100vh-3.5rem)] bg-zinc-950 max-w-5xl mx-auto w-full border-x border-zinc-800/80">
+    <div className={`flex-1 flex flex-col h-[calc(100vh-3.5rem)] max-w-5xl mx-auto w-full border-x transition-colors ${
+      isDark ? 'bg-zinc-950 border-zinc-800/80 text-zinc-100' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+    }`}>
       {/* Status Bar */}
-      <div className="min-h-14 sm:h-16 border-b border-zinc-800 bg-zinc-900/60 px-3 sm:px-5 py-2 flex items-center justify-between gap-2 shrink-0">
+      <div className={`min-h-14 sm:h-16 border-b px-3 sm:px-5 py-2 flex items-center justify-between gap-2 shrink-0 transition-colors ${
+        isDark ? 'border-zinc-800 bg-zinc-900/60' : 'border-zinc-200 bg-white/80'
+      }`}>
         <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
           {status === 'searching' && (
-            <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold text-amber-400">
-              <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin text-amber-400 shrink-0" />
+            <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold text-amber-500">
+              <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin text-amber-500 shrink-0" />
               <span className="truncate">Looking for someone to chat with...</span>
             </div>
           )}
 
           {status === 'matched' && (
-            <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-zinc-200">
+            <div className={`flex items-center gap-2 text-xs sm:text-sm font-bold ${
+              isDark ? 'text-zinc-200' : 'text-zinc-800'
+            }`}>
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
               <span className="truncate max-w-[120px] sm:max-w-none">
                 {isFriendConnected
@@ -240,7 +249,7 @@ export const ChatPage: React.FC = () => {
           )}
 
           {status === 'ended' && (
-            <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-rose-400">
+            <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-rose-500">
               <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0" />
               <span>Stranger disconnected</span>
             </div>
@@ -251,10 +260,14 @@ export const ChatPage: React.FC = () => {
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {/* Unlock Call Buttons if connection accepted */}
           {status === 'matched' && isFriendConnected && partner && profile && (
-            <div className="flex items-center gap-1 sm:gap-1.5 pr-1.5 sm:pr-2 border-r border-zinc-800">
+            <div className={`flex items-center gap-1 sm:gap-1.5 pr-1.5 sm:pr-2 border-r ${
+              isDark ? 'border-zinc-800' : 'border-zinc-200'
+            }`}>
               <button
                 onClick={() => startCall(partner, profile, false)}
-                className="p-2 sm:p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-sky-400 cursor-pointer transition active:scale-95"
+                className={`p-2 sm:p-2 rounded-xl text-sky-500 cursor-pointer transition active:scale-95 ${
+                  isDark ? 'bg-zinc-800 hover:bg-zinc-700' : 'bg-zinc-100 hover:bg-zinc-200'
+                }`}
                 title="Start Audio Call"
               >
                 <Phone className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -276,8 +289,10 @@ export const ChatPage: React.FC = () => {
               disabled={friendRequestSent}
               className={`px-3 sm:px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-1.5 cursor-pointer active:scale-95 ${
                 friendRequestSent
-                  ? 'bg-zinc-800 text-zinc-500'
-                  : 'bg-zinc-800 hover:bg-zinc-700 text-sky-400 hover:text-sky-300 border border-zinc-700/60 shadow-sm'
+                  ? isDark ? 'bg-zinc-800 text-zinc-500' : 'bg-zinc-200 text-zinc-400'
+                  : isDark
+                  ? 'bg-zinc-800 hover:bg-zinc-700 text-sky-400 hover:text-sky-300 border border-zinc-700/60 shadow-sm'
+                  : 'bg-zinc-100 hover:bg-zinc-200 text-sky-600 hover:text-sky-700 border border-zinc-300 shadow-sm'
               }`}
               title="Send Connection Request to unlock Audio & Video calling"
             >
@@ -290,14 +305,18 @@ export const ChatPage: React.FC = () => {
             <>
               <button
                 onClick={() => setReportOpen(true)}
-                className="p-2 sm:p-2 rounded-xl text-zinc-500 hover:text-amber-400 hover:bg-zinc-800 transition cursor-pointer active:scale-95"
+                className={`p-2 sm:p-2 rounded-xl transition cursor-pointer active:scale-95 ${
+                  isDark ? 'text-zinc-500 hover:text-amber-400 hover:bg-zinc-800' : 'text-zinc-400 hover:text-amber-600 hover:bg-zinc-100'
+                }`}
                 title="Report Stranger"
               >
                 <Flag className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
               </button>
               <button
                 onClick={() => setBlockOpen(true)}
-                className="p-2 sm:p-2 rounded-xl text-zinc-500 hover:text-rose-400 hover:bg-zinc-800 transition cursor-pointer active:scale-95"
+                className={`p-2 sm:p-2 rounded-xl transition cursor-pointer active:scale-95 ${
+                  isDark ? 'text-zinc-500 hover:text-rose-400 hover:bg-zinc-800' : 'text-zinc-400 hover:text-rose-600 hover:bg-zinc-100'
+                }`}
                 title="Block Stranger"
               >
                 <Ban className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
@@ -319,9 +338,11 @@ export const ChatPage: React.FC = () => {
 
       {/* Incoming Connection Request Banner */}
       {incomingFriendRequest && status === 'matched' && (
-        <div className="bg-sky-950/60 border-b border-sky-500/30 px-4 py-2.5 flex items-center justify-between text-xs text-sky-200 animate-in fade-in">
+        <div className={`border-b px-4 py-2.5 flex items-center justify-between text-xs sm:text-sm animate-in fade-in ${
+          isDark ? 'bg-sky-950/60 border-sky-500/30 text-sky-200' : 'bg-sky-50 border-sky-200 text-sky-900'
+        }`}>
           <div className="flex items-center gap-2">
-            <UserPlus className="w-4 h-4 text-sky-400" />
+            <UserPlus className="w-4 h-4 text-sky-500" />
             <span>Stranger sent you a connection request! Accept to reveal IDs and unlock calls.</span>
           </div>
           <div className="flex items-center gap-2">
@@ -333,7 +354,9 @@ export const ChatPage: React.FC = () => {
             </button>
             <button
               onClick={handleDeclineFriendRequest}
-              className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 cursor-pointer"
+              className={`p-1 rounded-lg cursor-pointer ${
+                isDark ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200'
+              }`}
             >
               <X className="w-4 h-4" />
             </button>
@@ -343,7 +366,7 @@ export const ChatPage: React.FC = () => {
 
       {/* Rate limit warning banner */}
       {rateLimitWarning && (
-        <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-2 text-xs text-amber-300 flex items-center gap-2 animate-in fade-in duration-150">
+        <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-2 text-xs sm:text-sm text-amber-500 flex items-center gap-2 animate-in fade-in duration-150">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{rateLimitWarning}</span>
         </div>
@@ -355,7 +378,9 @@ export const ChatPage: React.FC = () => {
           if (msg.is_system) {
             return (
               <div key={msg.id} className="text-center my-3">
-                <span className="inline-block px-4 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 text-xs sm:text-sm font-semibold text-zinc-300 shadow-sm">
+                <span className={`inline-block px-4 py-1.5 rounded-full border text-xs sm:text-sm font-semibold shadow-sm ${
+                  isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-300' : 'bg-zinc-100 border-zinc-200 text-zinc-700'
+                }`}>
                   {msg.content}
                 </span>
               </div>
@@ -374,13 +399,17 @@ export const ChatPage: React.FC = () => {
               <div
                 className={`p-3.5 sm:p-4 rounded-2xl text-sm sm:text-base leading-relaxed break-words shadow-sm ${
                   isMe
-                    ? 'bg-sky-500/15 border border-sky-500/40 text-sky-100 rounded-br-none'
-                    : 'bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-bl-none'
+                    ? (isDark 
+                        ? 'bg-sky-500/15 border border-sky-500/40 text-sky-100 rounded-br-none' 
+                        : 'bg-sky-50 border border-sky-200 text-sky-950 rounded-br-none')
+                    : (isDark 
+                        ? 'bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-bl-none' 
+                        : 'bg-white border border-zinc-200 text-zinc-900 shadow-sm rounded-bl-none')
                 }`}
               >
                 <div
                   className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider mb-1 ${
-                    isMe ? 'text-sky-400' : 'text-zinc-400'
+                    isMe ? (isDark ? 'text-sky-400' : 'text-sky-600') : (isDark ? 'text-zinc-400' : 'text-zinc-500')
                   }`}
                 >
                   {isMe ? 'You' : isFriendConnected ? `@${partner?.nickname || 'Stranger'}` : 'Stranger'}
@@ -411,8 +440,10 @@ export const ChatPage: React.FC = () => {
         {/* Partner Typing Indicator */}
         {partnerTyping && status === 'matched' && (
           <div className="mr-auto items-start my-1">
-            <div className="px-4 py-2.5 rounded-xl bg-zinc-900/80 border border-zinc-800 text-xs sm:text-sm text-zinc-300 flex items-center gap-1.5">
-              <span className="font-semibold text-zinc-200">
+            <div className={`px-4 py-2.5 rounded-xl border text-xs sm:text-sm flex items-center gap-1.5 ${
+              isDark ? 'bg-zinc-900/80 border-zinc-800 text-zinc-300' : 'bg-white border-zinc-200 text-zinc-700 shadow-sm'
+            }`}>
+              <span className={`font-semibold ${isDark ? 'text-zinc-200' : 'text-zinc-800'}`}>
                 {isFriendConnected ? `@${partner?.nickname || 'Stranger'}` : 'Stranger'}
               </span>{' '}
               is typing
@@ -427,8 +458,12 @@ export const ChatPage: React.FC = () => {
 
         {/* Disconnected End Banner */}
         {status === 'ended' && (
-          <div className="p-5 my-4 rounded-2xl bg-zinc-900/90 border border-zinc-800 text-center max-w-sm mx-auto space-y-3.5">
-            <p className="text-sm sm:text-base text-zinc-300 font-semibold">Your chat has ended.</p>
+          <div className={`p-5 my-4 rounded-2xl border text-center max-w-sm mx-auto space-y-3.5 ${
+            isDark ? 'bg-zinc-900/90 border-zinc-800' : 'bg-white border-zinc-200 shadow-md'
+          }`}>
+            <p className={`text-sm sm:text-base font-semibold ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
+              Your chat has ended.
+            </p>
             <button
               onClick={() => profile && nextMatch(profile)}
               className="w-full py-3.5 bg-sky-500 hover:bg-sky-400 text-black font-black text-sm sm:text-base rounded-xl shadow-lg shadow-sky-500/20 transition cursor-pointer flex items-center justify-center gap-2 active:scale-98"
@@ -444,15 +479,17 @@ export const ChatPage: React.FC = () => {
 
       {/* Selected Media Preview Bar */}
       {selectedMedia && (
-        <div className="px-4 py-2.5 bg-zinc-950 border-t border-zinc-800 flex items-center justify-between text-xs sm:text-sm text-zinc-300">
+        <div className={`px-4 py-2.5 border-t flex items-center justify-between text-xs sm:text-sm ${
+          isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-300' : 'bg-zinc-100 border-zinc-200 text-zinc-700'
+        }`}>
           <span className="flex items-center gap-2 truncate">
-            <ImageIcon className="w-4 h-4 text-sky-400 shrink-0" />
+            <ImageIcon className="w-4 h-4 text-sky-500 shrink-0" />
             {selectedMedia.type === 'video' ? 'Video ready to send' : 'Image ready to send'}
           </span>
           <button
             type="button"
             onClick={() => setSelectedMedia(null)}
-            className="p-1 rounded text-zinc-500 hover:text-white"
+            className={`p-1 rounded cursor-pointer ${isDark ? 'text-zinc-500 hover:text-white' : 'text-zinc-400 hover:text-zinc-800'}`}
           >
             <X className="w-4 h-4" />
           </button>
@@ -460,7 +497,9 @@ export const ChatPage: React.FC = () => {
       )}
 
       {/* Classic Ergonomic Control Bar */}
-      <div className="p-2.5 sm:p-4 border-t border-zinc-800 bg-zinc-900/80 shrink-0">
+      <div className={`p-2.5 sm:p-4 border-t shrink-0 transition-colors ${
+        isDark ? 'border-zinc-800 bg-zinc-900/80' : 'border-zinc-200 bg-white'
+      }`}>
         <form onSubmit={handleSend} className="flex items-center gap-2 sm:gap-3">
           {/* Big Disconnect / Stop Button */}
           <button
@@ -471,7 +510,9 @@ export const ChatPage: React.FC = () => {
                 ? 'bg-sky-500 hover:bg-sky-400 text-black shadow-lg shadow-sky-500/20 animate-pulse'
                 : stopConfirm
                 ? 'bg-amber-500 hover:bg-amber-400 text-black ring-2 ring-amber-400/50'
-                : 'bg-zinc-800 hover:bg-rose-600/80 text-zinc-200 hover:text-white border border-zinc-700/60'
+                : isDark
+                ? 'bg-zinc-800 hover:bg-rose-600/80 text-zinc-200 hover:text-white border border-zinc-700/60'
+                : 'bg-zinc-100 hover:bg-rose-600 text-zinc-800 hover:text-white border border-zinc-300'
             }`}
           >
             {status === 'ended'
@@ -485,10 +526,12 @@ export const ChatPage: React.FC = () => {
 
           {/* Media Attachment Button */}
           <label
-            className={`p-3.5 rounded-xl border border-zinc-800 transition cursor-pointer shrink-0 active:scale-95 ${
+            className={`p-3.5 rounded-xl border transition cursor-pointer shrink-0 active:scale-95 ${
               status !== 'matched'
-                ? 'opacity-40 cursor-not-allowed bg-zinc-950 text-zinc-600'
-                : 'bg-zinc-950 hover:bg-zinc-800 text-zinc-400 hover:text-white'
+                ? 'opacity-40 cursor-not-allowed bg-zinc-100 dark:bg-zinc-950 text-zinc-400'
+                : isDark
+                ? 'bg-zinc-950 hover:bg-zinc-800 text-zinc-400 hover:text-white border-zinc-800'
+                : 'bg-zinc-50 hover:bg-zinc-100 text-zinc-600 hover:text-zinc-900 border-zinc-300'
             }`}
             title="Send Image or Video"
           >
@@ -516,7 +559,11 @@ export const ChatPage: React.FC = () => {
                 ? 'Finding a stranger...'
                 : 'Chat ended.'
             }
-            className="flex-1 px-4 py-3.5 bg-zinc-950 border border-zinc-800 rounded-xl text-base sm:text-base text-white placeholder:text-zinc-600 focus:outline-none focus:border-sky-500 disabled:opacity-50 transition min-w-0"
+            className={`flex-1 px-4 py-3.5 border rounded-xl text-base sm:text-base transition min-w-0 focus:outline-none focus:border-sky-500 disabled:opacity-50 ${
+              isDark
+                ? 'bg-zinc-950 border-zinc-800 text-white placeholder:text-zinc-600'
+                : 'bg-zinc-50 border-zinc-300 text-zinc-900 placeholder:text-zinc-400'
+            }`}
           />
 
           {/* Send Button */}
