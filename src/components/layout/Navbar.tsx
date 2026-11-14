@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Volume2, VolumeX, Shield, User, Users, LogIn, LogOut, Sun, Moon } from 'lucide-react';
+import { Volume2, VolumeX, Shield, User, Users, LogIn, LogOut, Sun, Moon, Smartphone } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { useMatchStore } from '../../stores/matchStore';
 import { useFriendStore } from '../../stores/friendStore';
@@ -15,12 +15,32 @@ export const Navbar: React.FC = () => {
 
   const [friendsOpen, setFriendsOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   useEffect(() => {
     if (profile) {
       fetchFriends(profile.id);
     }
   }, [profile, fetchFriends]);
+
+  useEffect(() => {
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+    }
+  };
 
   const isDark = theme === 'dark';
 
@@ -105,6 +125,18 @@ export const Navbar: React.FC = () => {
               >
                 <LogIn className="w-4 h-4" />
                 <span>Sign In</span>
+              </button>
+            )}
+
+            {/* Install PWA Button */}
+            {deferredPrompt && (
+              <button
+                onClick={handleInstallClick}
+                className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 text-sky-400 text-xs font-bold flex items-center gap-1.5 cursor-pointer active:scale-95 transition"
+                title="Install Connectly App"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Install</span>
               </button>
             )}
 

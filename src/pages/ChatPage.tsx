@@ -8,6 +8,8 @@ import { useThemeStore } from '../stores/themeStore';
 import { ReportModal } from '../features/moderation/ReportModal';
 import { BlockModal } from '../features/moderation/BlockModal';
 import { EmojiPicker } from '../components/chat/EmojiPicker';
+import { AudioMessage } from '../components/chat/AudioMessage';
+import { getRandomIcebreaker } from '../lib/icebreakers';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import {
   Send,
@@ -18,6 +20,9 @@ import {
   AlertCircle,
   Paperclip,
   Smile,
+  Mic,
+  Dices,
+  Eye,
   Image as ImageIcon,
   X,
   UserPlus,
@@ -52,6 +57,9 @@ export const ChatPage: React.FC = () => {
   const [input, setInput] = useState('');
   const [selectedMedia, setSelectedMedia] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [revealedMedia, setRevealedMedia] = useState<Record<string, boolean>>({});
   const [stopConfirm, setStopConfirm] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [blockOpen, setBlockOpen] = useState(false);
@@ -62,6 +70,9 @@ export const ChatPage: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<any>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -81,6 +92,7 @@ export const ChatPage: React.FC = () => {
     setIsFriendConnected(false);
     setSelectedMedia(null);
     setEmojiOpen(false);
+    setRevealedMedia({});
     if (status === 'matched') {
       inputRef.current?.focus();
     }
@@ -211,6 +223,96 @@ export const ChatPage: React.FC = () => {
   const handleSelectEmoji = (emoji: string) => {
     setInput((prev) => prev + emoji);
     inputRef.current?.focus();
+  };
+
+  const handleInsertIcebreaker = () => {
+    const question = getRandomIcebreaker();
+    setInput(question);
+    inputRef.current?.focus();
+  };
+
+  const startAudioRecording = async () => {
+    if (status !== 'matched' || !profile) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecordingAudio(true);
+      setRecordingSeconds(0);
+
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds((prev) => {
+          if (prev >= 60) {
+            stopAudioRecording(true);
+            return 60;
+          }
+          return prev + 1;
+        });
+      }, 1000);
+    } catch (err) {
+      console.error('Microphone error:', err);
+      alert('Could not access microphone. Please grant mic permissions in browser settings.');
+    }
+  };
+
+  const stopAudioRecording = async (shouldSend: boolean) => {
+    if (!mediaRecorderRef.current) return;
+
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+
+    const recorder = mediaRecorderRef.current;
+    recorder.onstop = async () => {
+      recorder.stream.getTracks().forEach((track) => track.stop());
+
+      if (shouldSend && audioChunksRef.current.length > 0 && profile) {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const fileName = `voice_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.webm`;
+
+        let audioUrl = '';
+
+        if (isSupabaseConfigured) {
+          try {
+            const { error: uploadErr } = await supabase.storage.from('chat-media').upload(fileName, audioBlob, {
+              contentType: 'audio/webm',
+            });
+            if (!uploadErr) {
+              const { data: pubData } = supabase.storage.from('chat-media').getPublicUrl(fileName);
+              audioUrl = pubData.publicUrl;
+            }
+          } catch {
+            // fallback
+          }
+        }
+
+        if (!audioUrl) {
+          const reader = new FileReader();
+          reader.onload = async () => {
+            await sendMessage('', profile, reader.result as string, 'audio');
+          };
+          reader.readAsDataURL(audioBlob);
+          return;
+        }
+
+        await sendMessage('', profile, audioUrl, 'audio');
+      }
+    };
+
+    recorder.stop();
+    setIsRecordingAudio(false);
+    mediaRecorderRef.current = null;
   };
 
   const handleSendFriendRequest = async () => {
@@ -428,15 +530,49 @@ export const ChatPage: React.FC = () => {
                 {/* Inline Media Rendering */}
                 {msg.media_url && (
                   <div className="mb-2 rounded-xl overflow-hidden max-w-xs sm:max-w-sm">
-                    {msg.media_type === 'video' ? (
-                      <video src={msg.media_url} controls className="w-full max-h-64 rounded-lg bg-black" />
+                    {msg.media_type === 'audio' ? (
+                      <AudioMessage url={msg.media_url} isMe={isMe} isDark={isDark} />
                     ) : (
-                      <img
-                        src={msg.media_url}
-                        alt="Shared image"
-                        className="w-full object-cover rounded-lg cursor-pointer hover:opacity-95"
-                        onClick={() => window.open(msg.media_url!, '_blank')}
-                      />
+                      <div className="relative overflow-hidden rounded-lg">
+                        {/* Sensitive Media Blur Overlay for Stranger Media */}
+                        {!isMe && !revealedMedia[msg.id] && (
+                          <button
+                            type="button"
+                            onClick={() => setRevealedMedia((prev) => ({ ...prev, [msg.id]: true }))}
+                            className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1.5 p-4 text-center cursor-pointer bg-black/60 hover:bg-black/70 transition-colors backdrop-blur-md rounded-lg active:scale-98"
+                            title="Tap to reveal media"
+                          >
+                            <Eye className="w-6 h-6 text-sky-400 animate-pulse" />
+                            <span className="text-xs font-bold text-white tracking-wide">
+                              Sensitive Media
+                            </span>
+                            <span className="text-[11px] text-zinc-300">
+                              Tap to view {msg.media_type === 'video' ? 'video' : 'photo'}
+                            </span>
+                          </button>
+                        )}
+
+                        {msg.media_type === 'video' ? (
+                          <video
+                            src={msg.media_url}
+                            controls={isMe || Boolean(revealedMedia[msg.id])}
+                            className={`w-full max-h-64 rounded-lg bg-black transition-all duration-300 ${
+                              !isMe && !revealedMedia[msg.id] ? 'blur-xl brightness-50 select-none pointer-events-none' : ''
+                            }`}
+                          />
+                        ) : (
+                          <img
+                            src={msg.media_url}
+                            alt="Shared image"
+                            className={`w-full object-cover rounded-lg cursor-pointer transition-all duration-300 ${
+                              !isMe && !revealedMedia[msg.id]
+                                ? 'blur-xl brightness-50 select-none pointer-events-none'
+                                : 'hover:opacity-95'
+                            }`}
+                            onClick={() => (isMe || revealedMedia[msg.id]) && window.open(msg.media_url!, '_blank')}
+                          />
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
@@ -518,101 +654,176 @@ export const ChatPage: React.FC = () => {
           isDark={isDark}
         />
 
-        <form onSubmit={handleSend} className="flex items-center gap-1.5 sm:gap-2.5">
-          {/* Big Disconnect / Stop Button */}
-          <button
-            type="button"
-            onClick={handleStopClick}
-            className={`px-3 sm:px-5 py-3.5 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer shrink-0 select-none active:scale-95 ${
-              status === 'ended'
-                ? 'bg-sky-500 hover:bg-sky-400 text-black shadow-lg shadow-sky-500/20 animate-pulse'
-                : stopConfirm
-                ? 'bg-amber-500 hover:bg-amber-400 text-black ring-2 ring-amber-400/50'
-                : isDark
-                ? 'bg-zinc-800 hover:bg-rose-600/80 text-zinc-200 hover:text-white border border-zinc-700/60'
-                : 'bg-zinc-100 hover:bg-rose-600 text-zinc-800 hover:text-white border border-zinc-300'
-            }`}
-          >
-            {status === 'ended'
-              ? 'New [Esc]'
-              : status === 'searching'
-              ? 'Cancel'
-              : stopConfirm
-              ? 'Really?'
-              : 'Stop'}
-          </button>
+        {isRecordingAudio ? (
+          /* Active Voice Note Recording State */
+          <div className="flex items-center gap-2 sm:gap-3 py-1 animate-in fade-in duration-150">
+            <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-500 text-xs sm:text-sm font-bold shrink-0">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+              <span>
+                {Math.floor(recordingSeconds / 60)}:{recordingSeconds % 60 < 10 ? '0' : ''}{recordingSeconds % 60}
+              </span>
+            </div>
 
-          {/* Media Attachment Button */}
-          <label
-            className={`p-3.5 rounded-xl border transition cursor-pointer shrink-0 active:scale-95 ${
-              status !== 'matched'
-                ? 'opacity-40 cursor-not-allowed bg-zinc-100 dark:bg-zinc-950 text-zinc-400'
-                : isDark
-                ? 'bg-zinc-950 hover:bg-zinc-800 text-zinc-400 hover:text-white border-zinc-800'
-                : 'bg-zinc-50 hover:bg-zinc-100 text-zinc-600 hover:text-zinc-900 border-zinc-300'
-            }`}
-            title="Send Image or Video"
-          >
-            <Paperclip className="w-5 h-5" />
-            <input
-              type="file"
-              disabled={status !== 'matched'}
-              accept="image/*,video/*"
-              onChange={handleMediaUpload}
-              className="hidden"
-            />
-          </label>
+            <div className={`flex-1 text-xs sm:text-sm font-medium truncate ${
+              isDark ? 'text-zinc-400' : 'text-zinc-600'
+            }`}>
+              Recording voice note...
+            </div>
 
-          {/* Emoji Tray Toggle Button */}
-          <button
-            type="button"
-            disabled={status !== 'matched'}
-            onClick={() => setEmojiOpen((prev) => !prev)}
-            className={`p-3.5 rounded-xl border transition cursor-pointer shrink-0 active:scale-95 ${
-              status !== 'matched'
-                ? 'opacity-40 cursor-not-allowed bg-zinc-100 dark:bg-zinc-950 text-zinc-400'
-                : emojiOpen
-                ? 'bg-sky-500 text-black border-sky-400 shadow-md shadow-sky-500/20'
-                : isDark
-                ? 'bg-zinc-950 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 border-zinc-800'
-                : 'bg-zinc-50 hover:bg-zinc-100 text-zinc-600 hover:text-amber-500 border-zinc-300'
-            }`}
-            title="Insert Emoji"
-          >
-            <Smile className="w-5 h-5" />
-          </button>
+            <button
+              type="button"
+              onClick={() => stopAudioRecording(false)}
+              className={`px-3.5 py-3 rounded-xl font-bold text-xs sm:text-sm cursor-pointer transition active:scale-95 ${
+                isDark ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300' : 'bg-zinc-200 hover:bg-zinc-300 text-zinc-700'
+              }`}
+              title="Cancel recording"
+            >
+              Cancel
+            </button>
 
-          {/* Text Message Input (16px base font prevents iOS mobile zoom) */}
-          <input
-            ref={inputRef}
-            type="text"
-            disabled={status !== 'matched'}
-            value={input}
-            onChange={handleInputChange}
-            placeholder={
-              status === 'matched'
-                ? 'Type message...'
+            <button
+              type="button"
+              onClick={() => stopAudioRecording(true)}
+              className="px-4 py-3 bg-sky-500 hover:bg-sky-400 text-black font-black text-xs sm:text-sm rounded-xl transition shadow-md shadow-sky-500/20 cursor-pointer flex items-center gap-1.5 active:scale-95"
+              title="Send voice note"
+            >
+              <Send className="w-4 h-4" />
+              <span>Send Voice</span>
+            </button>
+          </div>
+        ) : (
+          /* Standard Input Bar */
+          <form onSubmit={handleSend} className="flex items-center gap-1.5 sm:gap-2.5">
+            {/* Big Disconnect / Stop Button */}
+            <button
+              type="button"
+              onClick={handleStopClick}
+              className={`px-3 sm:px-5 py-3.5 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer shrink-0 select-none active:scale-95 ${
+                status === 'ended'
+                  ? 'bg-sky-500 hover:bg-sky-400 text-black shadow-lg shadow-sky-500/20 animate-pulse'
+                  : stopConfirm
+                  ? 'bg-amber-500 hover:bg-amber-400 text-black ring-2 ring-amber-400/50'
+                  : isDark
+                  ? 'bg-zinc-800 hover:bg-rose-600/80 text-zinc-200 hover:text-white border border-zinc-700/60'
+                  : 'bg-zinc-100 hover:bg-rose-600 text-zinc-800 hover:text-white border border-zinc-300'
+              }`}
+            >
+              {status === 'ended'
+                ? 'New [Esc]'
                 : status === 'searching'
-                ? 'Finding a stranger...'
-                : 'Chat ended.'
-            }
-            className={`flex-1 px-4 py-3.5 border rounded-xl text-base sm:text-base transition min-w-0 focus:outline-none focus:border-sky-500 disabled:opacity-50 ${
-              isDark
-                ? 'bg-zinc-950 border-zinc-800 text-white placeholder:text-zinc-600'
-                : 'bg-zinc-50 border-zinc-300 text-zinc-900 placeholder:text-zinc-400'
-            }`}
-          />
+                ? 'Cancel'
+                : stopConfirm
+                ? 'Really?'
+                : 'Stop'}
+            </button>
 
-          {/* Send Button */}
-          <button
-            type="submit"
-            disabled={status !== 'matched' || (!input.trim() && !selectedMedia)}
-            className="p-3.5 sm:px-5 sm:py-3.5 bg-sky-500 hover:bg-sky-400 text-black font-black text-sm rounded-xl transition shadow-md shadow-sky-500/20 disabled:opacity-40 cursor-pointer flex items-center justify-center shrink-0 active:scale-95"
-            title="Send Message"
-          >
-            <Send className="w-5 h-5" />
-          </button>
-        </form>
+            {/* Media Attachment Button */}
+            <label
+              className={`p-3.5 rounded-xl border transition cursor-pointer shrink-0 active:scale-95 ${
+                status !== 'matched'
+                  ? 'opacity-40 cursor-not-allowed bg-zinc-100 dark:bg-zinc-950 text-zinc-400'
+                  : isDark
+                  ? 'bg-zinc-950 hover:bg-zinc-800 text-zinc-400 hover:text-white border-zinc-800'
+                  : 'bg-zinc-50 hover:bg-zinc-100 text-zinc-600 hover:text-zinc-900 border-zinc-300'
+              }`}
+              title="Send Image or Video"
+            >
+              <Paperclip className="w-5 h-5" />
+              <input
+                type="file"
+                disabled={status !== 'matched'}
+                accept="image/*,video/*"
+                onChange={handleMediaUpload}
+                className="hidden"
+              />
+            </label>
+
+            {/* Emoji Tray Toggle Button */}
+            <button
+              type="button"
+              disabled={status !== 'matched'}
+              onClick={() => setEmojiOpen((prev) => !prev)}
+              className={`p-3.5 rounded-xl border transition cursor-pointer shrink-0 active:scale-95 ${
+                status !== 'matched'
+                  ? 'opacity-40 cursor-not-allowed bg-zinc-100 dark:bg-zinc-950 text-zinc-400'
+                  : emojiOpen
+                  ? 'bg-sky-500 text-black border-sky-400 shadow-md shadow-sky-500/20'
+                  : isDark
+                  ? 'bg-zinc-950 hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 border-zinc-800'
+                  : 'bg-zinc-50 hover:bg-zinc-100 text-zinc-600 hover:text-amber-500 border-zinc-300'
+              }`}
+              title="Insert Emoji"
+            >
+              <Smile className="w-5 h-5" />
+            </button>
+
+            {/* 🎲 1-Tap Icebreaker Topic Button */}
+            <button
+              type="button"
+              disabled={status !== 'matched'}
+              onClick={handleInsertIcebreaker}
+              className={`p-3.5 rounded-xl border transition cursor-pointer shrink-0 active:scale-95 ${
+                status !== 'matched'
+                  ? 'opacity-40 cursor-not-allowed bg-zinc-100 dark:bg-zinc-950 text-zinc-400'
+                  : isDark
+                  ? 'bg-zinc-950 hover:bg-zinc-800 text-zinc-400 hover:text-sky-400 border-zinc-800'
+                  : 'bg-zinc-50 hover:bg-zinc-100 text-zinc-600 hover:text-sky-600 border-zinc-300'
+              }`}
+              title="🎲 1-Tap Fun Icebreaker Question"
+            >
+              <Dices className="w-5 h-5 text-sky-400" />
+            </button>
+
+            {/* Text Message Input (16px base font prevents iOS mobile zoom) */}
+            <input
+              ref={inputRef}
+              type="text"
+              disabled={status !== 'matched'}
+              value={input}
+              onChange={handleInputChange}
+              placeholder={
+                status === 'matched'
+                  ? 'Type message...'
+                  : status === 'searching'
+                  ? 'Finding a stranger...'
+                  : 'Chat ended.'
+              }
+              className={`flex-1 px-4 py-3.5 border rounded-xl text-base sm:text-base transition min-w-0 focus:outline-none focus:border-sky-500 disabled:opacity-50 ${
+                isDark
+                  ? 'bg-zinc-950 border-zinc-800 text-white placeholder:text-zinc-600'
+                  : 'bg-zinc-50 border-zinc-300 text-zinc-900 placeholder:text-zinc-400'
+              }`}
+            />
+
+            {/* Mic Button to Record Voice Note (when input is empty) OR Send Button */}
+            {!input.trim() && !selectedMedia ? (
+              <button
+                type="button"
+                disabled={status !== 'matched'}
+                onClick={startAudioRecording}
+                className={`p-3.5 rounded-xl border transition cursor-pointer shrink-0 active:scale-95 ${
+                  status !== 'matched'
+                    ? 'opacity-40 cursor-not-allowed bg-zinc-100 dark:bg-zinc-950 text-zinc-400'
+                    : isDark
+                    ? 'bg-zinc-950 hover:bg-zinc-800 text-zinc-400 hover:text-rose-400 border-zinc-800 shadow-sm'
+                    : 'bg-zinc-50 hover:bg-zinc-100 text-zinc-600 hover:text-rose-600 border-zinc-300 shadow-sm'
+                }`}
+                title="Hold / Tap to record Voice Note"
+              >
+                <Mic className="w-5 h-5" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={status !== 'matched'}
+                className="p-3.5 sm:px-5 sm:py-3.5 bg-sky-500 hover:bg-sky-400 text-black font-black text-sm rounded-xl transition shadow-md shadow-sky-500/20 disabled:opacity-40 cursor-pointer flex items-center justify-center shrink-0 active:scale-95"
+                title="Send Message"
+              >
+                <Send className="w-5 h-5" />
+              </button>
+            )}
+          </form>
+        )}
       </div>
 
       {/* Moderation Modals */}

@@ -10,7 +10,7 @@ export interface ChatMessage {
   sender_name?: string;
   content: string;
   media_url?: string | null;
-  media_type?: 'image' | 'video' | null;
+  media_type?: 'image' | 'video' | 'audio' | null;
   is_system?: boolean;
   created_at: string;
 }
@@ -30,7 +30,7 @@ interface MatchState {
   startMatchmaking: (userProfile: UserProfile) => Promise<void>;
   leaveMatch: () => Promise<void>;
   nextMatch: (userProfile: UserProfile) => Promise<void>;
-  sendMessage: (content: string, senderProfile: UserProfile, mediaUrl?: string, mediaType?: 'image' | 'video') => Promise<{ error?: string }>;
+  sendMessage: (content: string, senderProfile: UserProfile, mediaUrl?: string, mediaType?: 'image' | 'video' | 'audio') => Promise<{ error?: string }>;
   sendTyping: (isTyping: boolean) => void;
   sendFriendRequestSignal: () => void;
   respondFriendRequestSignal: (accepted: boolean) => void;
@@ -480,7 +480,7 @@ export const useMatchStore = create<MatchState>((set, get) => ({
     await get().startMatchmaking(userProfile);
   },
 
-  sendMessage: async (content: string, senderProfile: UserProfile, mediaUrl?: string, mediaType?: 'image' | 'video') => {
+  sendMessage: async (content: string, senderProfile: UserProfile, mediaUrl?: string, mediaType?: 'image' | 'video' | 'audio') => {
     const { conversationId, partner, status } = get();
     if (status !== 'matched' || !conversationId) {
       return { error: 'Not connected to a stranger' };
