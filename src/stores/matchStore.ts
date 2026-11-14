@@ -37,6 +37,8 @@ interface MatchState {
   subscribeToConversation: (conversationId: string, currentUserId: string) => void;
 }
 
+let queuePollInterval: any = null;
+
 export const useMatchStore = create<MatchState>((set, get) => ({
   status: 'idle',
   conversationId: null,
@@ -55,6 +57,11 @@ export const useMatchStore = create<MatchState>((set, get) => ({
   },
 
   startMatchmaking: async (userProfile: UserProfile) => {
+    if (queuePollInterval) {
+      clearInterval(queuePollInterval);
+      queuePollInterval = null;
+    }
+
     const { leaveMatch } = get();
     await leaveMatch();
 
@@ -148,6 +155,51 @@ export const useMatchStore = create<MatchState>((set, get) => ({
         get().subscribeToConversation(convId, userProfile.id);
       } else {
         // Enqueued, waiting for next person. Listen for queue pairing update.
+        const onMatched = async (matchedConvId: string) => {
+          if (queuePollInterval) {
+            clearInterval(queuePollInterval);
+            queuePollInterval = null;
+          }
+
+          // Fetch partner details
+          const { data: convMembers } = await supabase
+            .from('conversation_members')
+            .select('user_id, profile:profiles(*)')
+            .eq('conversation_id', matchedConvId)
+            .neq('user_id', userProfile.id);
+
+          const partner =
+            (convMembers?.[0]?.profile as unknown as UserProfile) || {
+              id: 'stranger',
+              nickname: 'Stranger',
+              is_guest: true,
+              role: 'user',
+              is_banned: false,
+              created_at: new Date().toISOString(),
+            };
+
+          sounds.playConnected();
+          set({
+            status: 'matched',
+            conversationId: matchedConvId,
+            partner,
+            messages: [
+              {
+                id: 'sys-connected-' + Date.now(),
+                sender_id: 'system',
+                content: "You're now chatting with a random stranger. Say hi!",
+                is_system: true,
+                created_at: new Date().toISOString(),
+              },
+            ],
+          });
+
+          if (get().channel) {
+            supabase.removeChannel(get().channel);
+          }
+          get().subscribeToConversation(matchedConvId, userProfile.id);
+        };
+
         const queueChannel = supabase
           .channel(`match_queue:${userProfile.id}`)
           .on(
@@ -161,45 +213,36 @@ export const useMatchStore = create<MatchState>((set, get) => ({
             async (payload) => {
               const updated = payload.new;
               if (updated.status === 'matched' && updated.matched_conversation_id) {
-                // Fetch partner details
-                const { data: convMembers } = await supabase
-                  .from('conversation_members')
-                  .select('user_id, profile:profiles(*)')
-                  .eq('conversation_id', updated.matched_conversation_id)
-                  .neq('user_id', userProfile.id);
-
-                const partner =
-                  (convMembers?.[0]?.profile as unknown as UserProfile) || {
-                    id: 'stranger',
-                    nickname: 'Stranger',
-                    is_guest: true,
-                    role: 'user',
-                    is_banned: false,
-                    created_at: new Date().toISOString(),
-                  };
-
-                sounds.playConnected();
-                set({
-                  status: 'matched',
-                  conversationId: updated.matched_conversation_id,
-                  partner,
-                  messages: [
-                    {
-                      id: 'sys-connected-' + Date.now(),
-                      sender_id: 'system',
-                      content: "You're now chatting with a random stranger. Say hi!",
-                      is_system: true,
-                      created_at: new Date().toISOString(),
-                    },
-                  ],
-                });
-
-                supabase.removeChannel(queueChannel);
-                get().subscribeToConversation(updated.matched_conversation_id, userProfile.id);
+                await onMatched(updated.matched_conversation_id);
               }
             }
           )
           .subscribe();
+
+        // Robust 1.5s fallback polling for instant pairing
+        queuePollInterval = setInterval(async () => {
+          if (get().status !== 'searching') {
+            if (queuePollInterval) {
+              clearInterval(queuePollInterval);
+              queuePollInterval = null;
+            }
+            return;
+          }
+
+          try {
+            const { data: qRows } = await supabase
+              .from('match_queue')
+              .select('status, matched_conversation_id')
+              .eq('user_id', userProfile.id)
+              .limit(1);
+
+            if (qRows && qRows[0] && qRows[0].status === 'matched' && qRows[0].matched_conversation_id) {
+              await onMatched(qRows[0].matched_conversation_id);
+            }
+          } catch {
+            // ignore network glitch in poll
+          }
+        }, 1500);
 
         set({ channel: queueChannel });
       }
@@ -393,6 +436,11 @@ export const useMatchStore = create<MatchState>((set, get) => ({
   },
 
   leaveMatch: async () => {
+    if (queuePollInterval) {
+      clearInterval(queuePollInterval);
+      queuePollInterval = null;
+    }
+
     const { conversationId, channel, status } = get();
     if (channel) {
       try {

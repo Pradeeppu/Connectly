@@ -11,7 +11,7 @@ const RANDOM_NAMES = [
 ];
 
 export const LandingPage: React.FC = () => {
-  const { signInAsGuest, profile, loading } = useAuthStore();
+  const { signInAsGuest, updateProfile, profile, loading } = useAuthStore();
   const { startMatchmaking } = useMatchStore();
   const navigate = useNavigate();
 
@@ -45,6 +45,9 @@ export const LandingPage: React.FC = () => {
         setError(res.error);
         return;
       }
+      activeProfile = useAuthStore.getState().profile;
+    } else if (activeProfile.nickname !== nickname.trim()) {
+      await updateProfile({ nickname: nickname.trim() });
       activeProfile = useAuthStore.getState().profile;
     }
 
@@ -133,6 +136,14 @@ export const LandingPage: React.FC = () => {
         <div className="mt-6 pt-5 border-t border-zinc-800/80 flex items-center justify-center gap-1.5 text-zinc-500 text-xs">
           <Shield className="w-3.5 h-3.5 text-zinc-400" />
           <span>100% Anonymous • End or skip chat anytime</span>
+        </div>
+
+        {/* Multi-Tab Testing Tip */}
+        <div className="mt-4 p-3 rounded-xl bg-zinc-950/80 border border-zinc-800 text-[11px] text-zinc-400 text-left">
+          <p className="font-semibold text-zinc-300 mb-0.5">💡 Testing on the same computer?</p>
+          <p>
+            Open your 2nd tab in an <span className="text-sky-400 font-semibold">Incognito / Private Window</span> (<kbd className="px-1 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-300 text-[10px]">Ctrl + Shift + N</kbd>) or a different browser so each tab has its own separate user identity.
+          </p>
         </div>
       </div>
     </div>
