@@ -51,6 +51,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         if (profile) {
           set({ profile });
+          if (profile.nickname) {
+            localStorage.setItem('connectly_device_nickname', profile.nickname);
+          }
         }
       }
     } catch (err) {
@@ -70,6 +73,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           .single();
         if (profile) {
           set({ profile });
+          if (profile.nickname) {
+            localStorage.setItem('connectly_device_nickname', profile.nickname);
+          }
         }
       } else {
         set({ user: null, profile: null });
@@ -197,6 +203,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (profileError) {
           console.error('Error inserting guest profile:', profileError);
         }
+        localStorage.setItem('connectly_device_nickname', nickname);
         set({ user: data.user, profile: newProfile as UserProfile });
       }
       return {};
@@ -233,6 +240,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         .eq('id', user.id);
 
       if (error) return { error: error.message };
+      if (updates.nickname) {
+        localStorage.setItem('connectly_device_nickname', updates.nickname);
+      }
       set({ profile: { ...profile, ...updates } });
       return {};
     } catch (err: any) {

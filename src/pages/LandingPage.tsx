@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useMatchStore } from '../stores/matchStore';
@@ -25,13 +25,49 @@ export const LandingPage: React.FC = () => {
     return `${word}_${num}`;
   };
 
-  const [nickname, setNickname] = useState(profile?.nickname || generateRandomNickname());
+  const getDeviceNickname = () => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('connectly_device_nickname');
+      if (saved && saved.trim()) return saved.trim();
+    }
+    return '';
+  };
+
+  // Persistent single device nickname: remembered across all visits until changed
+  const [nickname, setNickname] = useState<string>(() => {
+    const saved = getDeviceNickname();
+    if (saved) return saved;
+    const fresh = generateRandomNickname();
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('connectly_device_nickname', fresh);
+    }
+    return fresh;
+  });
+
   const [isAdult, setIsAdult] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Sync when profile finishes loading from Supabase session
+  useEffect(() => {
+    const saved = localStorage.getItem('connectly_device_nickname');
+    if (saved && saved.trim()) {
+      setNickname(saved.trim());
+    } else if (profile?.nickname) {
+      setNickname(profile.nickname);
+      localStorage.setItem('connectly_device_nickname', profile.nickname);
+    }
+  }, [profile]);
+
+  const handleRandomize = () => {
+    const fresh = generateRandomNickname();
+    setNickname(fresh);
+    localStorage.setItem('connectly_device_nickname', fresh);
+  };
+
   const handleStart = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nickname.trim()) {
+    const chosenName = nickname.trim();
+    if (!chosenName) {
       setError('Please choose a nickname');
       return;
     }
@@ -40,18 +76,21 @@ export const LandingPage: React.FC = () => {
       return;
     }
 
+    // Persist to this device permanently
+    localStorage.setItem('connectly_device_nickname', chosenName);
+
     setError(null);
     let activeProfile = profile;
 
     if (!activeProfile) {
-      const res = await signInAsGuest(nickname.trim());
+      const res = await signInAsGuest(chosenName);
       if (res.error) {
         setError(res.error);
         return;
       }
       activeProfile = useAuthStore.getState().profile;
-    } else if (activeProfile.nickname !== nickname.trim()) {
-      await updateProfile({ nickname: nickname.trim() });
+    } else if (activeProfile.nickname !== chosenName) {
+      await updateProfile({ nickname: chosenName });
       activeProfile = useAuthStore.getState().profile;
     }
 
@@ -104,7 +143,7 @@ export const LandingPage: React.FC = () => {
               <span>Your Nickname</span>
               <button
                 type="button"
-                onClick={() => setNickname(generateRandomNickname())}
+                onClick={handleRandomize}
                 className="text-xs text-sky-500 hover:text-sky-400 flex items-center gap-1.5 cursor-pointer py-1 px-2 rounded-lg hover:bg-zinc-800/10 transition"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -116,7 +155,10 @@ export const LandingPage: React.FC = () => {
               required
               maxLength={20}
               value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
+              onChange={(e) => {
+                setNickname(e.target.value);
+                localStorage.setItem('connectly_device_nickname', e.target.value);
+              }}
               placeholder="e.g. Stranger_101"
               className={`w-full px-4 py-3.5 border rounded-xl text-base font-medium transition focus:outline-none focus:border-sky-500 ${
                 isDark
